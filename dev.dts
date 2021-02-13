@@ -1,0 +1,588 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2018 Fuzhou Rockchip Electronics Co., Ltd
+ */
+
+/dts-v1/;
+#include <dt-bindings/display/drm_mipi_dsi.h>
+#include "rk1808-evb.dtsi"
+
+/ {
+	model = "Infoworks RK1808 VideoFusion Device-side board";
+	compatible = "rockchip,rk1808-evb-v10", "rockchip,rk1808";
+
+	chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xff430000 console=ttyFIQ0 root=PARTUUID=614e0000-0000 rootfstype=ext4 rootwait swiotlb=1 kpti=0 snd_aloop.index=7";
+	};
+
+	fiq-debugger {
+		status = "okay";
+		rockchip,serial-id = <0>;	// Debug UART0
+		rockchip,irq-mode-enable = <1>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&uart0_xfer>;
+	};
+
+	vad-sound {
+		status = "disabled";
+		compatible = "rockchip,multicodecs-card";
+		rockchip,card-name = "rockchip,rk1808-vad";
+		rockchip,cpu = <&pdm>;
+		rockchip,codec = <&vad>;
+	};
+};
+
+&threshold {
+	temperature = <115000>;
+};
+
+&target {
+	temperature = <115000>;
+};
+
+&soc_crit {
+	temperature = <115000>;
+};
+
+/* 
+	Peripherals 
+
+	+-------------------------------------------------+
+	|    Bus   |     Device    |         GPIO         |
+	+----------+---------------+----------------------+
+	|   SPI0   |  GS2972(IR)   | GPIO3_A6(TIM_861)    |
+	|          |               | GPIO3_B0(RATE_SEL0)  |
+	|          |               | GPIO3_B1(RATE_SEL1)  |
+	|          |               | GPIO3_B5(SEL_BUS)    |
+	|          |               | GPIO3_C1(DETECT_TRS) |
+	|          |               | GPIO3_A0(ANC_BLANK)  |
+	|          |               | GPIO2_C0(RESET)      |
+	|          |               | GPIO2_C1(LOCKED)     |
+	+----------+---------------+----------------------+
+	|   I2C1   |    TW8845     | GPIO4_B5(RESET)      |
+	|          |               | GPIO4_B4( INT )      |
+	+----------+---------------+----------------------+
+	| UART1_M0 |   HOST_UART   |                      |
+	+----------+---------------+----------------------+
+	| UART2_M0 |   IR RS232    |                      |
+	+----------+---------------+----------------------+
+
+*/
+
+&sdmmc {
+	status = "disabled";
+};
+
+/* GS2972 fusion/day/Night 3G-SDI Output */
+&spi0 {
+	status = "okay";
+	max-freq = <10000000>;
+
+	pinctrl-names = "default", "high_speed";
+	pinctrl-0 = <&spi0_clk &spi0_csn &spi0_miso &spi0_mosi>;
+	pinctrl-1 = <&spi0_clk_hs &spi0_csn &spi0_miso_hs &spi0_mosi_hs>;
+	
+	gs2972_ir@0 {
+		status = "okay";
+		compatible = "semtech,gs2972";
+
+		id = <0>;
+		reg = <0>;	// cs0
+		spi-max-frequency = <10000000>;
+
+		panel-width-mm = <500>;
+		panel-height-mm = <300>;
+
+		reset-gpios = <&gpio2 RK_PC0 GPIO_ACTIVE_LOW>;
+
+		/* [0] TIM_861  [1] RATE_SEL0  [2] RATE_SEL1
+			[3] SEL_BUS  [4] DETECT_TRS [5] ANC_BLANK */
+
+		ctrl-gpios = <&gpio3 RK_PA6 GPIO_ACTIVE_HIGH>,		/* TIM_861 */
+							<&gpio3 RK_PB0 GPIO_ACTIVE_HIGH>,	/* RATE_SEL0 */
+							<&gpio3 RK_PB1 GPIO_ACTIVE_HIGH>,	/* RATE_SEL1 */
+							<&gpio3 RK_PB5 GPIO_ACTIVE_HIGH>,	/* SEL_BUS */
+							<&gpio3 RK_PC1 GPIO_ACTIVE_HIGH>,	/* DETECT_TRS */
+							<&gpio3 RK_PA0 GPIO_ACTIVE_HIGH>;	/* ANC_BLANK */
+
+		bus-format = <MEDIA_BUS_FMT_RGB666_1X18>;
+
+		display-timings {
+			timing {
+				clock-frequency = <74250000>;
+				hactive = <1920>;
+				vactive = <1080>;
+				hback-porch = <148>;
+				hfront-porch = <88>;
+				vback-porch = <36>;
+				vfront-porch = <4>;
+				hsync-len = <44>;
+				vsync-len = <5>;
+				hsync-active = <1>;
+				vsync-active = <1>;
+				de-active = <1>;
+				pixelclk-active = <1>;
+			};
+		};
+
+		port {
+			gs2972_in_lt9211: endpoint {
+				remote-endpoint = <&lt9211_out_gs2972>;
+			};
+		};
+	};
+};
+
+/* LT9211 (Fusion Output ) */
+&i2c1 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	lt9211_ir: lt9211@2d {
+		status = "okay";
+		compatible = "lontium,lt9211-disp";
+		reg = <0x2d>;
+		reset-gpios = <&gpio4 RK_PB5 GPIO_ACTIVE_LOW>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				lt9211_in_rgb: endpoint {
+					remote-endpoint = <&rgb_out_lt9211>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+	
+				lt9211_out_gs2972: endpoint {
+					remote-endpoint = <&gs2972_in_lt9211>;
+				};
+			};
+		};
+	};
+
+};
+
+/* receive MIPI-CSI*/
+&i2c3 {
+	status = "okay";
+	eo_cam@33 {
+		status = "okay";
+		compatible = "lontium,mipi-camera";
+		reg = <0x2d>;
+		width = <1920>;
+		height = <1080>;
+		bus-format = <MEDIA_BUS_FMT_UYVY8_2X8>;
+		reset-gpios = <&gpio0 RK_PB4 GPIO_ACTIVE_LOW>;
+
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "TongJu";
+		rockchip,camera-mocule-lens-name = "CHT842-MD";
+
+		port {
+			dcam_out: endpoint {
+				remote-endpoint = <&mipi_in_ucam>;
+				link-frequencies = /bits/ 64 <400000000>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+};
+
+&i2c4 {
+	status = "disabled";
+};
+
+&i2c5 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	ir_cam@44 {
+		status = "okay";
+		compatible = "i3-system,te-ev1";
+
+		reg = <0x44>;
+		width = <640>;
+		height = <481>; 
+
+		bus-format = <MEDIA_BUS_FMT_Y8_1X8>;
+		reset-gpios = <&gpio2 RK_PB7 GPIO_ACTIVE_LOW>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cif_d2d9_m0>;
+
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "TongJu";
+		rockchip,camera-module-lens-name = "CHT842-MD";
+
+		port {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			ucam_out: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&isp0_dvp_in>;
+			};
+		};
+	};
+};
+
+&adc_key {
+	status = "disabled";
+};
+
+&display_subsystem {
+	status = "okay";
+};
+
+&route_rgb {
+	connect = <&vop_lite_out_rgb>;
+	status = "okay";
+};
+
+&rgb_in_vop_lite {
+	status = "okay";
+};
+
+&uart1 {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1m0_xfer>;
+};
+
+&uart2 {
+	status = "disabled";
+};
+
+&pwm1 {
+	status = "disabled";
+};
+
+&pwm3 {
+	status = "disabled";
+};
+
+&uart3 {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart3m0_xfer>;
+};
+
+&uart4 {
+	status = "disabled";
+};
+
+&sdio {
+	status = "disabled";
+};
+
+&rgb {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&lcdc_rgb_dclk_pin &lcdc_rgb_den_pin
+						&lcdc_rgb_m1_hsync_pin &lcdc_rgb_m1_vsync_pin 
+						&lcdc_rgb666_data_pins>;
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			rgb_out_lt9211: endpoint {
+				remote-endpoint = <&lt9211_in_rgb>;
+			};
+		};
+	};
+};
+/*
+/ {
+	panel: panel {
+		status = "okay";
+		compatible = "simple-panel";
+	
+		pinctrl-names = "default";
+		pinctrl-0 = <&lcdc_rgb_dclk_pin &lcdc_rgb_den_pin
+						&lcdc_rgb_m0_hsync_pin &lcdc_rgb_m0_vsync_pin 
+						&lcdc_rgb666_data_pins>;
+
+		bus-format = <MEDIA_BUS_FMT_RGB666_1X18>;
+		
+		width-mm = <120>;
+		height-mm = <80>;
+
+		power-supply = <&lcd_pwr>;
+		backlight = <&backlight>;
+
+
+		display-timings {
+			native-mode = <&timing_1080p30>;
+
+			timing_720p30: timing_720p30 {
+				clock-frequency = <37125000>; 
+				hactive = <1280>;
+				vactive = <720>;
+				hback-porch = <220>;
+				hfront-porch = <110>;
+				vback-porch = <20>;
+				vfront-porch = <5>;
+				hsync-len = <40>;
+				vsync-len = <5>;
+				hsync-active = <1>;
+				vsync-active = <1>;
+				de-active = <1>;
+				pixelclk-active = <1>;
+			};
+
+			timing_720p60: timing_720p60 {
+				clock-frequency = <74250000>; 
+				hactive = <1280>;
+				vactive = <720>;
+				hback-porch = <220>;
+				hfront-porch = <110>;
+				vback-porch = <20>;
+				vfront-porch = <5>;
+				hsync-len = <40>;
+				vsync-len = <5>;
+				hsync-active = <1>;
+				vsync-active = <1>;
+				de-active = <1>;
+				pixelclk-active = <1>;
+			};
+
+			timing_1080p30: timing_1080p30{
+				clock-frequency = <74250000>;
+				hactive = <1920>;
+				vactive = <1080>;
+				hback-porch = <148>;
+				hfront-porch = <88>;
+				vback-porch = <36>;
+				vfront-porch = <4>;
+				hsync-len = <44>;
+				vsync-len = <5>;
+				hsync-active = <1>;
+				vsync-active = <1>;
+				de-active = <1>;
+				pixelclk-active = <1>;
+			};
+
+			timing_1080p60: timing_1080p60{
+				clock-frequency = <148500000>;
+				hactive = <1920>;
+				vactive = <1080>;
+				hback-porch = <148>;
+				hfront-porch = <88>;
+				vback-porch = <36>;
+				vfront-porch = <4>;
+				hsync-len = <44>;
+				vsync-len = <5>;
+				hsync-active = <1>;
+				vsync-active = <1>;
+				de-active = <1>;
+				pixelclk-active = <1>;
+			};
+
+
+		};
+
+		port {
+			panel_in_rgb: endpoint {
+				remote-endpoint = <&rgb_out_panel>;
+			};
+		};
+	};
+};
+*/
+
+&pdm {
+	status = "disabled";
+	#sound-dai-cells = <0>;
+};
+
+&i2s1 {
+	status = "disabled";
+	#sound-dai-cells = <0>;
+};
+
+&isp_mmu {
+	status = "okay";
+};
+
+&mipi_dphy {
+	status = "okay";
+};
+
+&mipi_dphy_rx {
+	status = "okay";
+	
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi_in_ucam: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&ucam_out>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			dphy_rx0_out: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&isp0_mipi_in>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+};
+
+&rk_rga {
+	status =  "okay";
+};
+
+&rk809_sound {
+	status = "okay";
+};
+
+&rk809 {
+	/delete-property/ pwrkey;
+};
+
+&saradc {
+	status = "disabled";
+};
+
+&vcc1v8_dvp {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vdd1v5_dvp {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vcc2v8_dvp {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vccio_sd {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vcc3v3_sd {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vcc5v0_host {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&rkisp1 {
+	status = "okay";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		isp0_dvp_in: endpoint@1 {
+			reg = <1>;
+			remote-endpoint = <&ucam_out>;
+		};
+	};
+};
+
+&rng {
+	status = "okay";
+};
+
+&rockchip_suspend {
+	status = "okay";
+	rockchip,sleep-debug-en = <1>;
+};
+
+&tsadc {
+	rockchip,hw-tshut-mode = <1>; /* tshut mode 0:CRU 1:GPIO */
+	rockchip,hw-tshut-polarity = <0>; /* tshut polarity 0:LOW 1:HIGH */
+	pinctrl-names = "gpio", "otpout";
+	pinctrl-0 = <&tsadc_otp_gpio>;
+	pinctrl-1 = <&tsadc_otp_out>;
+	status = "okay";
+};
+
+&vad {
+	status = "disabled";
+};
+
+&vop_lite {
+	status = "okay";
+};
+
+&vopl_mmu {
+	status = "okay";
+};
+
+&vpu_mmu {
+	status = "disabled";
+};
+
+&vpu_service {
+	status = "disabled";
+};
+
+/* 2019.08.13. JSPARK Add*/
+
+&combphy {
+	status = "okay";
+};
+
+&usb_host0_ehci {
+        status = "okay";
+};
+
+&usb_host0_ohci {
+        status = "okay";
+};
+
+&pcie0 {
+	status = "disabled";
+};
+
+&usbdrd3 {
+	status = "okay";
+};
+
+&usbdrd_dwc3{
+	status = "okay";
+	dr_mode = "otg";
+};
+
+&wireless_wlan {
+	status = "disabled";
+};
+
+&wireless_bluetooth {
+	status = "disabled";
+};
+

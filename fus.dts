@@ -1,0 +1,510 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2018 Fuzhou Rockchip Electronics Co., Ltd
+ */
+
+/dts-v1/;
+#include <dt-bindings/display/drm_mipi_dsi.h>
+#include "rk1808-evb.dtsi"
+
+/ {
+	model = "Infoworks RK1808 VideoFusion Host-side board";
+	compatible = "rockchip,rk1808-evb-v10", "rockchip,rk1808";
+
+	chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xff430000 console=ttyFIQ0 root=PARTUUID=614e0000-0000 rootfstype=ext4 rootwait swiotlb=1 kpti=0 snd_aloop.index=7";
+	};
+
+	fiq-debugger {
+		status = "okay";
+		rockchip,serial-id = <0>;
+		rockchip,irq-mode-enable = <1>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&uart0_xfer>;
+	};
+
+	vad-sound {
+		status = "disabled";
+		compatible = "rockchip,multicodecs-card";
+		rockchip,card-name = "rockchip,rk1808-vad";
+		rockchip,cpu = <&pdm>;
+		rockchip,codec = <&vad>;
+	};
+};
+
+&threshold {
+	temperature = <115000>;
+};
+
+&target {
+	temperature = <115000>;
+};
+
+&soc_crit {
+	temperature = <115000>;
+};
+
+/*
+	Peripherals 
+
+	+-------------------------------------------------+
+	|    Bus   |     Device    |  GPIO / Description  |
+	+----------+---------------+----------------------+
+	| SPI1_M0  |  GS2972(DAY)  | GPIO4_B3(TIM_861)    |
+	|   CSN0   |               | GPIO2_B6(RATE_SEL0)  |
+	|          |               | GPIO2_B7(RATE_SEL1)  |
+	|          |               | GPIO0_C7(SEL_BUS)    |
+	|          |               | GPIO4_C0(DETECT_TRS) |
+	|          |               | GPIO2_B6(ANC_BLANK)  |
+	|          |               | GPIO4_C4(RESET)      |
+	|          |               | GPIO4_C3(LOCKED)     |
+	+----------+---------------+----------------------+
+	| SPI2_M1  |  GS2972(IR)   | GPIO3_A6(TIM_861)    |
+	|          |               | GPIO3_B1(RATE_SEL0)  |
+	|          |               | GPIO3_B2(RATE_SEL1)  |
+	|          |               | GPIO3_B4(SEL_BUS)    |
+	|          |               | GPIO3_C1(DETECT_TRS) |
+	|          |               | GPIO3_A0(ANC_BLANK)  |
+	|          |               | GPIO2_B0(RESET)      |
+	|          |               | GPIO2_B1(LOCKED)     |
+	+----------+---------------+----------------------+
+	|   I2C1   |  LT9211(CAM)  | GPIO0_B4(RESET)      |
+	+----------+---------------+----------------------+
+	| I2C2_M1  |  LT9211(Fus)  | GPIO0_C5(RESET)      |
+	+----------+---------------+----------------------+
+	|   I2C5   |  LT9211(Eo)   | GPIO3_B5(RESET)      |
+	+----------+---------------+----------------------+
+	| UART1_M0 | RK1808 Device | Device B'd UART1     |
+	+----------+---------------+----------------------+
+	| UART2_M2 |   IR RS232    | 38400bps             |
+	+----------+---------------+----------------------+
+	|  UART3   |   V536 UART   |                      |
+	+----------+---------------+----------------------+
+
+*/
+/* GS2972 Daytime 3G-SDI Output*/
+&spi1 {
+	status = "okay";
+	dma-names = "tx", "rx";
+	max-freq = <10000000>;
+
+	pinctrl-names = "default", "high_speed";
+	pinctrl-0 = <&spi1_clk &spi1_csn0 &spi1_miso &spi1_mosi>;
+	pinctrl-1 = <&spi1_clk_hs &spi1_csn0 &spi1_miso_hs &spi1_mosi_hs>;
+
+	gs2972_eo@04 {
+		compatible = "rockchip,spidev";
+		id = <0>;	// id
+		reg = <0>;	// cs0
+		spi-max-frequency = <10000000>;
+		status = "okay";
+	};
+};
+
+/* GS2972 Fusion 3G-SDI Output*/
+&spi2 {
+	status = "okay";
+	dma-names = "tx", "rx";
+	max-freq = <10000000>;
+
+	pinctrl-names = "default", "high_speed";
+	pinctrl-0 = <&spi2m1_clk &spi2m1_csn &spi2m1_miso &spi2m1_mosi>;
+	pinctrl-1 = <&spi2m1_clk_hs &spi2m1_csn &spi2m1_miso_hs &spi2m1_mosi_hs>;
+
+	gs2972_fusion@0 {
+		status = "okay";
+		compatible = "semtech,gs2972";
+
+		id = <1>;
+		reg = <0>; // cs0
+		spi-max-frequency = <10000000>;
+
+		panel-width-mm = <100>;
+		panel-height-mm = <154>;
+
+		reset-gpios = <&gpio2 RK_PB0 GPIO_ACTIVE_LOW>;
+
+		/* [0] TIM_861  [1] RATE_SEL0  [2] RATE_SEL1
+			[3] SEL_BUS  [4] DETECT_TRS [5] ANC_BLANK */
+
+		ctrl-gpios = <&gpio3 RK_PA6 GPIO_ACTIVE_HIGH>,		/* TIM_861 */
+							<&gpio3 RK_PB1 GPIO_ACTIVE_HIGH>,	/* RATE_SEL0 */
+							<&gpio3 RK_PB2 GPIO_ACTIVE_HIGH>,	/* RATE_SEL1 */
+							<&gpio3 RK_PB4 GPIO_ACTIVE_HIGH>,	/* SEL_BUS */
+							<&gpio3 RK_PC1 GPIO_ACTIVE_HIGH>,	/* DETECT_TRS */
+							<&gpio3 RK_PA0 GPIO_ACTIVE_HIGH>;	/* ANC_BLANK */
+
+		bus-format = <MEDIA_BUS_FMT_RGB666_1X18>;
+
+		display-timings {
+			timing {
+				clock-frequency = <74250000>;
+				hactive = <1920>;
+				vactive = <1080>;
+				hback-porch = <148>;
+				hfront-porch = <88>;
+				vback-porch = <36>;
+				vfront-porch = <4>;
+				hsync-len = <44>;
+				vsync-len = <5>;
+				hsync-active = <1>;
+				vsync-active = <1>;
+				de-active = <1>;
+				pixelclk-active = <1>;
+			};
+		};
+
+		port {
+			gs2972_in_lt9211: endpoint {
+				remote-endpoint = <&lt9211_out_gs2972>;
+			};
+		};
+	};
+};
+
+/* LT9211 RGB to MIPI-CSI as camera */
+&i2c1 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	lt9211_cam: lt9211@2d {
+		status = "okay";
+		compatible = "lontium,mipi-camera";
+		reg = <0x2d>;
+      width = <1920>;
+      height = <1080>;
+      bus-format = <MEDIA_BUS_FMT_UYVY8_2X8>;
+      reset-gpios = <&gpio0 RK_PB4 GPIO_ACTIVE_LOW>;
+
+      rockchip,camera-module-index = <0>;
+      rockchip,camera-module-facing = "back";
+      rockchip,camera-module-name = "TongJu";
+      rockchip,camera-module-lens-name = "CHT842-MD";
+
+		port {
+			ucam_out: endpoint {
+				remote-endpoint = <&mipi_in_ucam>;
+				link-frequencies = /bits/ 64 <400000000>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+};
+
+/* LT9211(Fusion Output) */
+&i2c2 {
+	status = "okay";
+	clock-frequency = <100000>;
+	pinctrl-0 = <&i2c2m1_xfer>;
+
+	lt9211_fusion: lt9211@2d {
+		status = "okay";
+		compatible = "lontium,lt9211-disp";
+		reg = <0x2d>;
+		reset-gpios = <&gpio0 RK_PC5 GPIO_ACTIVE_LOW>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+
+				lt9211_in_rgb: endpoint {
+					remote-endpoint = <&rgb_out_lt9211>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+
+				lt9211_out_gs2972: endpoint {
+					remote-endpoint = <&gs2972_in_lt9211>;
+				};
+			};
+		};
+	};
+};
+
+&i2c3 {
+	status = "disabled";
+};
+
+&i2c4 {
+	status = "disabled";
+};
+
+/* LT9211(Daytime) */
+&i2c5 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	lt9211_daytime: lt9211@2d {
+		status = "okay";
+		compatible = "lontium,lt9211";
+		reg = <0x2d>;
+		reset-gpios = <&gpio3 RK_PB5 GPIO_ACTIVE_LOW>;
+	};
+};
+
+/* RK1808 Device-side communication */
+&uart1 {
+	status = "okay";
+	dma-names = "tx", "rx";
+	pinctrl-0 = <&uart1m0_xfer>;
+};
+
+/* ICD <-> RK1808 Communication */
+&uart2 {
+	status = "okay";
+	dma-names = "tx", "rx";
+	pinctrl-0 = <&uart2m1_xfer>;
+};
+
+/* V536 Communication */
+&uart3 {
+	status = "okay";
+	dma-names = "tx", "rx";
+	pinctrl-0 = <&uart3m0_xfer>;
+};
+
+/* SPI1 Muxing */
+&uart4 {
+	status = "disabled";
+};
+
+&wireless_bluetooth {
+	status = "disabled";
+};
+
+&pwm1 {
+	status = "disabled";
+};
+
+&sdio {
+	status = "disabled";
+};
+
+&sdmmc {
+	status  = "disabled";
+};
+
+&saradc {
+	status = "disabled";
+};
+
+/* Display Setting (RGB Output) */
+&display_subsystem {
+	status = "okay";
+};
+
+&route_rgb {
+	status = "okay";
+};
+
+&rgb_in_vop_lite {
+	status = "okay";
+};
+
+&rgb {
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&lcdc_rgb_dclk_pin &lcdc_rgb_den_pin
+						&lcdc_rgb_m0_hsync_pin &lcdc_rgb_m0_vsync_pin 
+						&lcdc_rgb666_data_pins>;
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			rgb_out_lt9211: endpoint {
+				remote-endpoint = <&lt9211_in_rgb>;
+			};
+		};
+	};
+};
+
+&adc_key {
+	status = "disabled";
+};
+
+&pdm {
+	status = "disabled";
+};
+
+&i2s0 {
+	status = "disabled";
+};
+
+&i2s1 {
+	status = "disabled";
+};
+
+&isp_mmu {
+	status = "okay";
+};
+
+&mipi_dphy {
+	status = "okay";
+};
+
+&mipi_dphy_rx {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi_in_ucam: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&ucam_out>;
+				data-lanes = <1 2 3 4>;
+			};
+
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			dphy_rx0_out: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&isp0_mipi_in>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+};
+
+&rk_rga {
+	status =  "okay";
+};
+
+&rk809_sound {
+	status = "disabled";
+};
+
+&rk809_codec {
+	status = "disabled";
+};
+
+&rk809 {
+	/delete-property/ pwrkey;
+};
+
+&vcc1v8_dvp {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vdd1v5_dvp {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vcc2v8_dvp {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vccio_sd {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vcc3v3_sd {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&vcc5v0_host {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&rkisp1 {
+	status = "okay";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		isp0_mipi_in: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&dphy_rx0_out>;
+		};
+	};
+};
+
+&rng {
+	status = "okay";
+};
+
+&tsadc {
+	rockchip,hw-tshut-mode = <1>; /* tshut mode 0:CRU 1:GPIO */
+	rockchip,hw-tshut-polarity = <0>; /* tshut polarity 0:LOW 1:HIGH */
+	pinctrl-names = "gpio", "otpout";
+	pinctrl-0 = <&tsadc_otp_gpio>;
+	pinctrl-1 = <&tsadc_otp_out>;
+	status = "okay";
+};
+
+&vad {
+	status = "disabled";
+	rockchip,audio-src = <&pdm>;
+	rockchip,buffer-time-ms = <200>;
+	rockchip,det-channel = <0>;
+	rockchip,mode = <1>;
+	#sound-dai-cells = <0>;
+};
+
+&vop_lite {
+	status = "okay";
+};
+
+&vopl_mmu {
+	status = "okay";
+};
+
+&vpu_mmu {
+	status = "disabled";
+};
+
+&vpu_service {
+	status = "disabled";
+};
+
+
+/* 2019.08.13. JSPARK Add*/
+
+&combphy {
+	status = "okay";
+};
+
+&usb_host0_ehci {
+        status = "okay";
+};
+
+&usb_host0_ohci {
+        status = "okay";
+};
+
+&pcie0 {
+	status = "disabled";
+};
+
+&usbdrd3 {
+	status = "okay";
+};
+
+&usbdrd_dwc3{
+	status = "okay";
+	dr_mode = "host";
+};
